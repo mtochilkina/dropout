@@ -1,0 +1,2 @@
+sample=$1
+/home/maria/tools/cellranger-7.0.1/cellranger count --id=sample$(echo ${sample} | sed -e 's/\.//g') --transcriptome=/home/maria/1tb/human_reference_transcriptome/refdata-gex-GRCh38-2020-A --fastqs=/home/maria/1tb/data/SRX15446041/fastq/sample${sample} --sample=SRX15446041

@@ -1,0 +1,450 @@
+---
+title: "K562.analysis"
+output: html_document
+date: "2024-09-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+```
+# read data
+```{r}
+expression<-read.table("genes_stat_raw_expression.txt")
+fraction<-read.table("genes_stat_raw_fraction.txt")
+expression %>% replace(is.na(.), 0)-> expression
+fraction %>% replace(is.na(.), 0)-> fraction
+```
+```{r}
+length(intersect(rownames(fraction), rownames(expression)))
+```
+```{r}
+library(hash)
+depth_dictionary <- hash() 
+depth_dictionary[["sample002"]] <- 12
+depth_dictionary[["sample004"]] <- 23
+depth_dictionary[["sample006"]] <- 34
+depth_dictionary[["sample008"]] <- 45
+depth_dictionary[["sample01"]] <- 55
+depth_dictionary[["sample012"]] <- 66
+depth_dictionary[["sample014"]] <- 77
+depth_dictionary[["sample016"]] <- 87
+depth_dictionary[["sample018"]] <- 98
+depth_dictionary[["sample02"]] <- 109
+depth_dictionary[["sample03"]] <- 164
+depth_dictionary[["sample04"]] <- 218
+depth_dictionary[["sample05"]] <- 272
+depth_dictionary[["sample06"]] <- 326
+depth_dictionary[["sample08"]] <- 435
+depth_dictionary[["sample1"]] <- 542
+change_depth<-function(initial_label){
+  new_label<-depth_dictionary[[as.character(initial_label)]]
+  return(new_label)
+}
+```
+```{r}
+stats<-read.csv("basic_stat.csv", header=TRUE)
+stats$depth<-c(542, 435, 326, 272, 218, 164, 109, 98, 87, 77, 66, 55, 45, 34, 23, 12)
+```
+```{r}
+plt<-ggplot(stats, aes(x=Read.depth, y=Detected.genes))+geom_point(colour="#b33d90ff", size=5)+theme_bw()+theme(text=element_text(size=20), axis.text.x = element_text(size = 16),axis.text.y = element_text(size = 16),legend.position = "none") + scale_x_continuous(breaks=c(10000, 50000, 100000, 150000, 200000, 250000, 300000, 350000, 400000, 450000, 500000, 550000), labels=c("10", "50", "100", "150", "200", "250", "300", "350", "400", "450", "500", "550"))+  xlab("Mean reads per cell, K ") + ylab("Number of detected genes")
+print(plt)
+svg(file="basic_stat.svg", width = 8, height = 6)
+print(plt)
+dev.off()
+```
+# clusters by expression
+```{r}
+expression.ori<-subset(expression, select=c(sample1))
+expression.ori %>% mutate(quantile = ntile(sample1, 4)) -> expression.ori
+```
+```{r}
+gene.cluster<-expression.ori$quantile
+names(gene.cluster)<-rownames(expression.ori)
+```
+#Visualize heatmap
+```{r}
+heatmap_expression<-Heatmap(expression, show_column_dend = FALSE,show_row_names = FALSE, cluster_rows = FALSE, cluster_columns=FALSE, row_split = gene.cluster[rownames(expression)],  column_labels = rev(stats$depth), column_names_rot=0, row_names_rot=90, row_title_rot = 0, name = "Expression", row_title_gp = gpar(fontsize = c(15)),column_names_gp = gpar(fontsize = c(14)), column_names_centered = TRUE, column_title = "Sequencing depth, K reads per cell", column_title_side = "bottom", column_title_gp = gpar(fontsize = 16), col=colorRamp2(quantile(expression.ori$sample1, probs=seq(0, 1, 0.1)), rev(brewer.pal(11,"Spectral"))),heatmap_legend_param = list(legend_width = unit(10, "cm"),break_dist = rep(1, 10), at = round(quantile(round(expression.ori$sample1,1), probs=seq(0, 1, 0.1)), 4)))
+
+svg(file="heatmap_expression.svg",  width = 8, height = 6)
+draw(heatmap_expression,padding = unit(c(2, 2, 2, 20), "mm"))
+dev.off()
+draw(heatmap_expression,padding = unit(c(2, 2, 2, 20), "mm"))
+```
+```{r}
+heatmap_fraction<-Heatmap(fraction[, 1:16], show_column_dend = FALSE,show_row_names = FALSE, cluster_rows = FALSE, cluster_columns=FALSE, row_split = gene.cluster[rownames(fraction)],  column_labels = rev(stats$depth), column_names_rot=0, row_names_rot=90, row_title_rot = 0, name = "Fraction", row_title_gp = gpar(fontsize = c(15)),column_names_gp = gpar(fontsize = c(14)), column_names_centered = TRUE, column_title = "Sequencing depth, K reads per cell", column_title_side = "bottom", column_title_gp = gpar(fontsize = 16))
+
+svg(file="heatmap_fraction.svg",  width = 8, height = 6)
+draw(heatmap_fraction,padding = unit(c(2, 2, 2, 20), "mm"))
+dev.off()
+draw(heatmap_fraction,padding = unit(c(2, 2, 2, 20), "mm"))
+```
+# boxplot
+```{r}
+draw_plt<-function(plot_data, method_name){
+  plt<-ggplot(plot_data, aes(x=sample, y=fraction,fill=as.factor(cluster), alpha=sample))+ geom_boxplot() +theme_bw() +scale_x_discrete(breaks=c("sample002", "sample004", "sample006", "sample008", "sample01", "sample012", "sample014", "sample016", "sample018","sample02", "sample03","sample04","sample05", "sample06","sample08", "sample1"),
+        labels=rev(stats$depth))+labs(x="Sequencing depth, K reads per cell", y="Fraction of expressing cells") +theme(axis.title=element_text(size=24),text=element_text(size=24), legend.position = "none", axis.text.x=element_text(size=20, angle=90, vjust=0.5), strip.background=element_rect(colour="black", fill="white", linetype = "solid"))+ scale_fill_brewer(palette="Dark2")+ facet_wrap(~cluster, nrow=2) + scale_y_continuous(breaks=c(0, 0.5, 1)) + geom_hline(data = raw_data_median, aes(yintercept = median), color="red")+ ggtitle(method_name)
+  print(plt)
+  svg(file=paste("boxplot_fraction_",method_name, ".svg", sep=""), width=14, height=9) # 
+  print(plt)
+  dev.off()
+}
+```
+#!
+```{r}
+fraction$cluster<-gene.cluster[rownames(fraction)]
+fraction.long<-fraction %>% pivot_longer(cols = starts_with("sample"), names_to = "sample", values_to = "fraction")
+```
+```{r}
+fraction.long %>% filter(sample=="sample1") %>% group_by(cluster) %>% summarise(median=median(fraction))-> raw_data_median
+```
+```{r}
+draw_plt(fraction.long, "no_imp")
+```
+#fraction stat
+```{r}
+fraction.long %>% group_by(cluster, sample) %>% summarize(max=round(max(fraction), 3), min=round(min(fraction), 3), median=round(median(fraction), 3), mean=round(mean(fraction), 3), q25=round(quantile(fraction)[2], 3), q75=round(quantile(fraction)[4], 3)) -> data.stat
+data.stat<-data.stat %>% arrange(cluster, sample)
+fraction.long %>% group_by(cluster, sample) %>% filter(fraction==0) %>% summarise(n=n()) -> dop.stat
+merge(data.stat, dop.stat, by=c( "cluster", "sample"), all=TRUE)  %>% replace(is.na(.), 0) -> full.stat
+full.stat$sample<-sapply(full.stat$sample, function(x) change_depth(x))
+write.table(full.stat, "full_stat.tsv", sep="\t", row.names=FALSE)
+```
+#expression
+```{r}
+expression$cluster<-gene.cluster[rownames(expression)]
+expression.long<-expression %>% pivot_longer(cols = starts_with("sample"), names_to = "sample", values_to = "expression")
+expression.long %>% filter(sample=="sample1") %>% group_by(cluster) %>% summarise(median=median(expression))-> raw_data_median.expression
+```
+```{r}
+draw_plt2<-function(plot_data, method_name){
+  plt2<-ggplot(plot_data, aes(x=sample, y=expression,fill=as.factor(cluster), alpha=sample))+ geom_boxplot() +theme_bw() +scale_x_discrete(breaks=c("sample002", "sample004", "sample006", "sample008", "sample01", "sample012", "sample014", "sample016", "sample018","sample02", "sample03","sample04","sample05", "sample06","sample08", "sample1"),
+        labels=rev(stats$depth))+labs(x="Sequencing depth, K reads per cell", y="Expression") +theme(axis.title=element_text(size=24),text=element_text(size=24), legend.position = "none", axis.text.x=element_text(size=20, angle=90, vjust=0.5), strip.background=element_rect(colour="black", fill="white", linetype = "solid"))+ scale_fill_brewer(palette="Dark2")+ facet_wrap(~cluster, nrow=2) + geom_hline(data = raw_data_median.expression, aes(yintercept = median), color="red") +ggtitle(method_name)
+  print(plt2)
+  svg(file=paste("boxplot_expression_",method_name, ".svg", sep=""), width=14, height=9) # 
+  print(plt2)
+  dev.off()
+}
+```
+```{r}
+draw_plt2(expression.long, "no_imp")
+```
+
+# Imputation methods, boxplot
+```{r}
+imput.stat.fraction<-read.table("genes_stats_fraction_imp.txt", header=TRUE, row.names=1)
+imput.stat.fraction$cluster<-gene.cluster[rownames(imput.stat.fraction)]
+imput.stat.fraction$gene<-row.names(imput.stat.fraction)
+imput.stat.fraction[is.na(imput.stat.fraction)] <- 0
+imput.stat.fraction<-imput.stat.fraction %>% pivot_longer(cols = starts_with("sample"), names_to = "info", values_to = "fraction")
+imput.stat.fraction$sample<-sapply(imput.stat.fraction$info, function(x) str_split(x, "_")[[1]][1])
+imput.stat.fraction$method<-sapply(imput.stat.fraction$info, function(x) str_split(x, "_", n=2)[[1]][2])
+```
+#alra
+```{r}
+alra.fraction<-imput.stat.fraction %>% filter(method=="alra")
+```
+```{r}
+draw_plt(alra.fraction, "ALRA")
+```
+#SAVER
+```{r}
+saver.fraction<-imput.stat.fraction %>% filter(method=="Saver")
+```
+```{r}
+draw_plt(saver.fraction, "SAVER")
+```
+#scVI
+```{r}
+scVI.fraction<-imput.stat.fraction %>% filter(method=="scVI")
+```
+```{r}
+draw_plt(scVI.fraction, "scVI")
+```
+#knn
+```{r}
+knn.fraction<-imput.stat.fraction %>% filter(method=="knn_3")
+```
+```{r}
+draw_plt(knn.fraction, "kNN-smoothing")
+```
+#magic
+```{r}
+magic.fraction<-imput.stat.fraction %>% filter(method=="magic_2")
+```
+```{r}
+draw_plt(magic.fraction, "MAGIC")
+```
+#scImpute
+```{r}
+scimpute.fraction<-imput.stat.fraction %>% filter(method=="scimpute_0.5")
+```
+```{r}
+draw_plt(scimpute.fraction, "scImpute")
+```
+## Tuning imputation parameters
+```{r}
+draw_plt2<-function(plot_data, method_name, param){
+  plt<-ggplot(plot_data, aes(x=sample, y=fraction,fill=as.factor(cluster), alpha=sample))+ geom_boxplot() +theme_bw() +scale_x_discrete(breaks=c("sample002", "sample004", "sample006", "sample008", "sample01", "sample012", "sample014", "sample016", "sample018","sample02", "sample03","sample04","sample05", "sample06","sample08", "sample1"),
+        labels=rev(stats$depth))+labs(x="Sequencing depth, K reads per cell", y="Fraction of expressing cells") +theme(axis.title=element_text(size=24),text=element_text(size=24), legend.position = "none", axis.text.x=element_text(size=20, angle=90, vjust=0.5), strip.background=element_rect(colour="black", fill="white", linetype = "solid"))+ scale_fill_brewer(palette="Dark2")+ facet_wrap(~cluster, nrow=2) + scale_y_continuous(breaks=c(0, 0.5, 1)) + geom_hline(data = raw_data_median, aes(yintercept = median), color="red")+ ggtitle(paste(method_name, ", k=", param, sep=""))
+  print(plt)
+  svg(file=paste("boxplot_fraction_",method_name,"_param_", param, ".svg", sep=""), width=14, height=9) # 
+  print(plt)
+  dev.off()
+}
+```
+#Magic
+```{r}
+magic.fraction<-filter(imput.stat.fraction, method %in% c("magic_1", "magic_2", "magic_3", "magic_4", "magic_5", "magic_6", "magic_7", "magic_8", "magic_9", "magic_10"))
+magic.fraction$t<-sapply(magic.fraction$method, function(x) str_split(x, "_", n=2)[[1]][2])
+magic.fraction$t<-as.numeric(magic.fraction$t)
+```
+```{r}
+for (i in unique(magic.fraction$t)){
+  plot_data<-magic.fraction %>% filter(t==i)
+  draw_plt2(plot_data, "magic", i)
+}
+```
+#scImpute
+```{r}
+scimpute.fraction<-filter(imput.stat.fraction, method %in% c("scimpute_0.3", "scimpute_0.5", "scimpute_0.9"))
+scimpute.fraction$k<-sapply(scimpute.fraction$method, function(x) str_split(x, "_", n=2)[[1]][2])
+scimpute.fraction$k<-as.numeric(scimpute.fraction$k)
+```
+```{r}
+for (i in unique(scimpute.fraction$k)){
+  plot_data<-scimpute.fraction %>% filter(k==i)
+  draw_plt2(plot_data, "scimpute", i)
+}
+```
+#KNN-smoothing
+```{r}
+knn.fraction<-filter(imput.stat.fraction, method %in% c("knn_2", "knn_3", "knn_4", "knn_5", "knn_6", "knn_7", "knn_8", "knn_9", "knn_10"))
+knn.fraction$k<-sapply(knn.fraction$method, function(x) str_split(x, "_", n=2)[[1]][2])
+knn.fraction$k<-as.numeric(knn.fraction$k)
+```
+```{r}
+for (i in unique(knn.fraction$k)){
+  plot_data<-knn.fraction %>% filter(k==i)
+  draw_plt2(plot_data, "KNN-smoothing", i)
+}
+```
+```{r}
+knn.sample002.fraction<-read.table("genes_stat_fraction_imp_knn_sample002.txt", header=TRUE, row.names=1)
+knn.sample002.fraction$cluster<-gene.cluster[rownames(knn.sample002.fraction)]
+knn.sample002.fraction$gene<-row.names(knn.sample002.fraction)
+knn.sample002.fraction[is.na(knn.sample002.fraction)] <- 0
+knn.sample002.fraction<-knn.sample002.fraction %>% pivot_longer(cols = starts_with("sample"), names_to = "info", values_to = "fraction")
+knn.sample002.fraction$sample<-sapply(knn.sample002.fraction$info, function(x) str_split(x, "_")[[1]][1])
+knn.sample002.fraction$method<-sapply(knn.sample002.fraction$info, function(x) str_split(x, "_", n=2)[[1]][2])
+```
+```{r}
+draw_plt3<-function(plot_data, method_name, param){
+  plt<-ggplot(plot_data, aes(x=sample, y=fraction,fill=as.factor(cluster), alpha=sample))+ geom_boxplot() +theme_bw() +scale_x_discrete(breaks=c("sample002"),
+        labels=c("12K"))+labs(x="Sequencing depth, K reads per cell", y="Fraction of expressing cells") +theme(axis.title=element_text(size=24),text=element_text(size=24), legend.position = "none", axis.text.x=element_text(size=20, angle=90, vjust=0.5), strip.background=element_rect(colour="black", fill="white", linetype = "solid"))+ scale_fill_brewer(palette="Dark2")+ facet_wrap(~cluster, nrow=2) + scale_y_continuous(breaks=c(0, 0.5, 1)) + geom_hline(data = raw_data_median, aes(yintercept = median), color="red")+ ggtitle(paste(method_name, ", k=", param, sep=""))
+  print(plt)
+  svg(file=paste("boxplot_fraction_",method_name,"_param_", param, "_sample002.svg", sep=""), width=14, height=9) # 
+  print(plt)
+  dev.off()
+}
+```
+```{r}
+knn.sample002.fraction$k<-sapply(knn.sample002.fraction$method, function(x) str_split(x, "_", n=2)[[1]][2])
+knn.sample002.fraction$k<-as.numeric(knn.sample002.fraction$k)
+```
+```{r}
+for (i in unique(knn.sample002.fraction$k)){
+  plot_data<-knn.sample002.fraction %>% filter(k==i)
+  draw_plt2(plot_data, "KNN-smoothing", i)
+}
+```
+#KNN-smoothing - optimal parameters 
+```{r}
+knn.fraction %>% group_by(method, sample, cluster, k) %>% summarize(median=median(fraction))-> knn.median
+```
+```{r}
+knn.sample002.fraction %>% group_by(method, sample, cluster, k) %>% summarize(median=median(fraction))-> knn.sample002.median
+```
+```{r}
+knn.median.full<-rbind(knn.median, knn.sample002.median)
+```
+```{r}
+plt<-ggplot(knn.median, aes(x=sample, y=median, color=as.factor(k))) + geom_point(size=3) + theme_bw() +scale_x_discrete(breaks=c("sample002", "sample004", "sample006", "sample008", "sample01", "sample012", "sample014", "sample016", "sample018","sample02", "sample03","sample04","sample05", "sample06","sample08", "sample1"),
+        labels=rev(stats$depth))+ ggtitle("KNN-smoothing")+labs(x="Sequencing depth, K reads per cell", y="Fraction of expressing cells", color="Parameter k") +theme(axis.title=element_text(size=20),text=element_text(size=20), axis.text.x=element_text(size=20, angle=90, vjust=0.5), strip.background=element_rect(colour="black", fill="white", linetype = "solid"))+ facet_wrap(~cluster, nrow=2) + geom_hline(data = raw_data_median, aes(yintercept = median), color="red")#(pallete="Dark2")scale_fill_manual(values = c("red", "yellow","blue", "orange", "green", "grey"))
+
+print(plt)
+svg(file=paste("geompoint_median_fraction_KNN.svg", sep=""), width=14, height=9)
+print(plt)
+dev.off()
+```
+```{r}
+knn.median.full$median<-round(knn.median.full$median, 2)
+```
+# sequencing depth - 12k
+```{r}
+knn.median.full %>% filter(sample=="sample002", k %in% c(11, 12, 13, 14, 15)) ->k12
+k12<-subset(k12, select=-c(method, sample))
+k12<-merge(k12, raw_data_median, by=c("cluster"))
+colnames(k12)<-c("cluster", "k", "median", "reference")
+k12$reference<-round(k12$reference, 2)
+k12
+```
+# sequencing depth - 23k
+```{r}
+knn.median.full %>% filter(sample=="sample004", k %in% c(7, 8, 9)) ->k23
+k23<-subset(k23, select=-c(method, sample))
+k23<-merge(k23, raw_data_median, by=c("cluster"))
+colnames(k23)<-c("cluster", "k", "median", "reference")
+k23$reference<-round(k23$reference, 2)
+k23
+```
+# sequencing depth - 34k
+```{r}
+knn.median.full %>% filter(sample=="sample006", k %in% c(5, 6, 7)) ->k34
+k34<-subset(k34, select=-c(method, sample))
+k34<-merge(k34, raw_data_median, by=c("cluster"))
+colnames(k34)<-c("cluster", "k", "median", "reference")
+k34$reference<-round(k34$reference, 2)
+k34
+```
+# sequencing depth - 45k
+```{r}
+knn.median.full %>% filter(sample=="sample008", k %in% c(3, 4, 5)) ->k45
+k45<-subset(k45, select=-c(method, sample))
+k45<-merge(k45, raw_data_median, by=c("cluster"))
+colnames(k45)<-c("cluster", "k", "median", "reference")
+k45$reference<-round(k45$reference, 2)
+k45
+```
+# sequencing depth - 55k
+```{r}
+knn.median.full %>% filter(sample=="sample01", k %in% c(3, 4, 5)) ->k55
+k55<-subset(k55, select=-c(method, sample))
+k55<-merge(k55, raw_data_median, by=c("cluster"))
+colnames(k55)<-c("cluster", "k", "median", "reference")
+k55$reference<-round(k55$reference, 2)
+k55
+```
+# sequencing depth - 66k
+```{r}
+knn.median.full %>% filter(sample=="sample012", k %in% c(2, 3, 4)) ->k66
+k66<-subset(k66, select=-c(method, sample))
+k66<-merge(k66, raw_data_median, by=c("cluster"))
+colnames(k66)<-c("cluster", "k", "median", "reference")
+k66$reference<-round(k66$reference, 2)
+k66
+```
+# sequencing depth - 77k
+```{r}
+knn.median.full %>% filter(sample=="sample014", k %in% c(2, 3, 4)) ->k77
+k77<-subset(k77, select=-c(method, sample))
+k77<-merge(k77, raw_data_median, by=c("cluster"))
+colnames(k77)<-c("cluster", "k", "median", "reference")
+k77$reference<-round(k77$reference, 2)
+k77
+```
+# sequencing depth - 87k
+```{r}
+knn.median.full %>% filter(sample=="sample016", k %in% c(2, 3)) ->k87
+k87<-subset(k87, select=-c(method, sample))
+k87<-merge(k87, raw_data_median, by=c("cluster"))
+colnames(k87)<-c("cluster", "k", "median", "reference")
+k87$reference<-round(k87$reference, 2)
+k87
+```
+# sequencing depth - 98k
+```{r}
+knn.median.full %>% filter(sample=="sample018", k %in% c(2, 3)) ->k98
+k98<-subset(k98, select=-c(method, sample))
+k98<-merge(k98, raw_data_median, by=c("cluster"))
+colnames(k98)<-c("cluster", "k", "median", "reference")
+k98$reference<-round(k98$reference, 2)
+k98
+```
+# sequencing depth - 109k
+```{r}
+knn.median.full %>% filter(sample=="sample02", k %in% c(2, 3)) ->k109
+k109<-subset(k109, select=-c(method, sample))
+k109<-merge(k109, raw_data_median, by=c("cluster"))
+colnames(k109)<-c("cluster", "k", "median", "reference")
+k109$reference<-round(k109$reference, 2)
+k109
+```
+```{r}
+k12<- k12 %>% filter(k==13)
+k23<- k23 %>% filter(k==8)
+k34<- k34 %>% filter(k==5)
+k45<- k45 %>% filter(k==4)
+k55<- k55 %>% filter(k==4)
+k66<- k66 %>% filter(k==3)
+k77<- k77 %>% filter(k==3)
+k87<- k87 %>% filter(k==2)
+k98<- k98 %>% filter(k==2)
+k109<- k109 %>% filter(k==2)
+```
+```{r}
+k12$depth<-12
+k23$depth<-23
+k34$depth<-34
+k45$depth<-45
+k55$depth<-55
+k66$depth<-66
+k77$depth<-77
+k87$depth<-87
+k98$depth<-98
+k109$depth<-109
+```
+```{r}
+final.stat<-rbind(k12, k23, k34, k45, k55, k66, k77, k87, k98, k109)
+final.stat<-subset(final.stat, select=-c(k))
+head(final.stat)
+```
+```{r}
+max(abs(final.stat$reference-final.stat$median))
+```
+```{r}
+fraction.long %>% group_by(sample, cluster) %>% summarize(median=median(fraction))-> raw.median
+raw.median<-merge(raw.median, raw_data_median, by="cluster")
+colnames(raw.median)<-c("cluster", "sample", "median", "reference")
+max(abs(raw.median$median-raw.median$reference))
+```
+```{r}
+optimal.k<-c(13, 8, 5, 4, 4, 3, 3, 2, 2, 2)
+names(optimal.k)<-c("12", "23", "34", "45", "55", "66", "77", "87", "98", "109")
+final.stat %>% pivot_wider(names_from = depth, values_from = median) ->final.stat
+write.table(final.stat, "optimal_k_stat.csv", sep="\t")
+print(optimal.k)
+```
+```{r}
+final.stat
+```
+```{r}
+knn.fraction.full<-rbind(knn.fraction, knn.sample002.fraction)
+knn.fraction.full %>% filter(sample=="sample002" & k==13 | sample=="sample004" & k==8 | sample=="sample006" & k==5 | sample=="sample008" & k==4 | sample=="sample01" & k==4 | sample=="sample012" & k==3 | sample=="sample014" & k==3 | sample=="sample016" & k==2 | sample=="sample018" & k==2 | sample=="sample02" & k==2) -> knn.optimal
+knn.optimal<-subset(knn.optimal, select=c("cluster", "sample", "fraction", "k"))
+ref<-filter(fraction.long, sample=="sample1")
+ref$k<-"ref"
+knn.optimal<-rbind(knn.optimal, ref)
+knn.optimal$k <- factor(knn.optimal$k, levels = c("13", "8", "5", "4", "3", "2", "ref"))
+```
+```{r}
+draw_plt4<-function(plot_data){
+  plt<-ggplot(plot_data, aes(x=sample, y=fraction,fill=k))+ geom_boxplot() +theme_bw() +scale_x_discrete(breaks=c("sample002", "sample004", "sample006", "sample008", "sample01", "sample012", "sample014", "sample016", "sample018","sample02", "sample1"),
+        labels=c(12, 23, 34, 45, 55, 66, 77, 87, 98, 109, 542))+labs(x="Sequencing depth, K reads per cell", y="Fraction of expressing cells") +theme(axis.title=element_text(size=24),text=element_text(size=24),  axis.text.x=element_text(size=20, angle=90, vjust=0.5), strip.background=element_rect(colour="black", fill="white", linetype = "solid"))+ scale_fill_brewer(palette="Dark2")+ facet_wrap(~cluster, nrow=2) + scale_y_continuous(breaks=c(0, 0.5, 1)) + geom_hline(data = raw_data_median, aes(yintercept = median), color="red")+ ggtitle("KNN-smoothing, optimal k")
+  print(plt)
+  svg(file=paste("boxplot_knn_optimal_k.svg", sep=""), width=14, height=9) # 
+  print(plt)
+  dev.off()
+}
+```
+```{r}
+draw_plt4(knn.optimal)
+```
