@@ -1,0 +1,133 @@
+---
+title: "montoro_analysis"
+output: html_document
+date: "2024-04-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+setwd("~/1tb/paper/SARS-CoV-2_entryfactors/")
+```
+```{r}
+source("~/1tb/paper/CFTR/knn_smooth.R")
+```
+```{r}
+#trachea<-read.table("~/1tb/paper/SARS-CoV-2_entryfactors/Trachea_droplet.tsv", header=TRUE, row.names=1)
+```
+
+```{r}
+UMI<-read.table("~/1tb/paper/SARS-CoV-2_entryfactors/Trachea_droplet.tsv", header=TRUE, row.names=1)
+TPM<-read.table("~/1tb/paper/SARS-CoV-2_entryfactors/Trachea_TPM.txt", header=TRUE, row.names=1)
+```
+```{r}
+knn2<-knn_smoothing(UMI, 2)
+knn3<-knn_smoothing(UMI, 3)
+knn4<-knn_smoothing(UMI, 4)
+```
+```{r}
+columns<-c("gene", "method", "cell_type", "fraction")
+stat_trachea<-data.frame(matrix(nrow = 0, ncol = length(columns))) 
+colnames(stat_trachea)<-columns
+```
+```{r}
+genes<-c("Ace2", "Furin", "Ctsl", "Tmprss2")
+method<-c("UMI", "TPM", "knn4", "knn3", "knn2")
+cell_types<-c("Basal", "Club", "Ciliated")
+```
+```{r}
+combination<-tidyr::expand_grid(genes, method, cell_types)
+```
+```{r}
+func1<-function(gene, method, cell_type, i, stat_trachea, TPM, UMI, knn4, knn3, knn2){
+  stat_trachea[i,"gene"]<-gene
+  stat_trachea[i,"method"]<-method
+  stat_trachea[i,"cell_type"]<-cell_type
+
+  if (method=="TPM"){
+    data<-TPM
+  }
+  if (method=="UMI"){
+    data<-UMI
+  }
+  if (method=="knn4"){
+    data<-knn4
+  }
+  if (method=="knn3"){
+    data<-knn3
+  }
+    if (method=="knn2"){
+    data<-knn2
+  }
+  stat_trachea[i,"fraction"]<-sum(data[gene,(sapply(colnames(data), function(x) str_split(x, "_")[[1]][1])==cell_type)]>0)/length(data[gene,(sapply(colnames(data), function(x) str_split(x, "_")[[1]][1])==cell_type)])
+  return(stat_trachea)
+}
+```
+```{r}
+#columns<-c("gene", "method", "cell_type", "fraction")
+#stat_trachea<-data.frame(matrix(nrow = 0, ncol = length(columns))) 
+#colnames(stat_trachea)<-columns
+```
+```{r}
+for (k in 1:dim(combination)[1]){
+  stat_trachea<-func1(combination[k,1][[1]], combination[k,2][[1]], combination[k,3][[1]], k, stat_trachea, TPM, UMI, knn4, knn3, knn2)
+}
+```
+```{r}
+head(stat_trachea)
+```
+```{r}
+stat_trachea$fraction<-round(stat_trachea$fraction, 3)
+```
+```{r}
+stat_trachea
+```
+```{r}
+write.table(stat_trachea, "stat_trachea.txt")
+```
+
+```{r}
+stat_trachea_plot<-filter(stat_trachea, method %in% c("UMI", "knn4", "TPM"))
+```
+```{r}
+stat_trachea_plot
+```
+
+
+```{r}
+plt<-ggplot(data=stat_trachea_plot, aes(x=factor(method, levels=c("UMI", "knn4", "TPM")), y=fraction, fill=method))+geom_bar(stat="identity")+facet_wrap(vars(gene, cell_type), ncol=3)+theme_bw()+ theme(plot.title = element_text(size = 16),text=element_text(size=16), axis.text.x = element_text(size = 14, angle = 45, hjust=1),
+        axis.text.y = element_text(size = 14),legend.position = "none", strip.background=element_rect(colour="black",
+                                    fill="white", linetype = "solid"))+scale_fill_manual(values=c("#edae49","#66a182", "cadetblue3"))+ scale_x_discrete(labels=c("UMI","kNN4","full-length"))+ labs(y="Fraction", x="")
+print(plt)
+```
+```{r}
+svg(file=paste("~/1tb/paper/SARS-CoV-2_entryfactors/barplot_fraction_covid",".svg", sep=""), width=7, height=10)#width=7.5, height=5
+print(plt)
+dev.off()
+```
+```{r}
+plt1<-ggplot(data=filter(stat_trachea_plot, gene %in% c("Ace2", "Furin")), aes(x=factor(method, levels=c("UMI", "knn4", "TPM")), y=fraction, fill=method))+geom_bar(stat="identity")+facet_wrap(vars(gene, cell_type), ncol=3)+theme_bw()+ theme(plot.title = element_text(size = 16),text=element_text(size=16), axis.text.x = element_text(size = 14, angle = 45, hjust=1),
+        axis.text.y = element_text(size = 14),legend.position = "none", strip.background=element_rect(colour="black",
+                                    fill="white", linetype = "solid"))+scale_fill_manual(values=c("#edae49","#66a182", "cadetblue3"))+ scale_x_discrete(labels=c("UMI","kNN4","full-length"))+ labs(y="Fraction", x="")
+print(plt1)
+```
+```{r}
+svg(file=paste("~/1tb/paper/SARS-CoV-2_entryfactors/barplot_fraction_covid_Ace2_Furin",".svg", sep=""), width=7, height=6.5)#width=7.5, height=5
+print(plt1)
+dev.off()
+```
+```{r}
+plt2<-ggplot(data=filter(stat_trachea_plot, gene %in% c("Ctsl", "Tmprss2")), aes(x=factor(method, levels=c("UMI", "knn4", "TPM")), y=fraction, fill=method))+geom_bar(stat="identity")+facet_wrap(vars(gene, cell_type), ncol=3)+theme_bw()+ theme(plot.title = element_text(size = 16),text=element_text(size=16), axis.text.x = element_text(size = 14, angle = 45, hjust=1),
+        axis.text.y = element_text(size = 14),legend.position = "none", strip.background=element_rect(colour="black",
+                                    fill="white", linetype = "solid"))+scale_fill_manual(values=c("#edae49","#66a182", "cadetblue3"))+ scale_x_discrete(labels=c("UMI","kNN4","full-length"))+ labs(y="Fraction", x="")
+print(plt2)
+```
+```{r}
+svg(file=paste("~/1tb/paper/SARS-CoV-2_entryfactors/barplot_fraction_covid_Ctsl_Tmprss2",".svg", sep=""), width=7, height=6.5)#width=7.5, height=5
+print(plt2)
+dev.off()
+```
