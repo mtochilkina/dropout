@@ -1,0 +1,193 @@
+---
+title: "CFTR_analysis"
+output: html_document
+date: "2024-09-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(Seurat)
+library("data.table")
+library(ggplot2)
+```
+
+### run knn
+```{r}
+source("~/1tb/paper/CFTR/knn_smooth.R")
+```
+```{r}
+srr89<-read.table("GSM4876739_feb4_gene5kCell.dge.txt", header=TRUE, row.names=1)
+srr90<-read.table("GSM4876740_feb4b_500Cell.dge.txt", header=TRUE, row.names=1)
+srr91<-read.table("GSM4876741_feb25_gene5kCell.dge.txt", header=TRUE, row.names=1)
+srr92<-read.table("GSM4876742_S_0225LA_2kCell.dge.txt", header=TRUE, row.names=1)
+srr94<-read.table("GSM4876744_S_0429LA_5kCell.dge.txt", header=TRUE, row.names=1)
+srr95<-read.table("GSM4876745_S_0528LAa_3.5kCell.dge.txt", header=TRUE, row.names=1)
+srr96<-read.table("GSM4876746_S_0528LAb_1.4kCell.dge.txt", header=TRUE, row.names=1)
+srr97<-read.table("GSM4876747_apr29sae_5kCell.dge.txt", header=TRUE, row.names=1)
+srr98<-read.table("GSM4876748_S_0507SA_3.5kCell.dge.txt", header=TRUE, row.names=1)
+srr99<-read.table("GSM4876749_S_0520SAa_2.5kCell.dge.txt", header=TRUE, row.names=1)
+srr00<-read.table("GSM4876750_S_0520SAb_1.5kCell.dge.txt", header=TRUE, row.names=1)
+```
+
+```{r}
+#k=10
+#k=14
+k=15
+```
+
+```{r}
+srr.list=list(srr89, srr90, srr91, srr92, srr94, srr95, srr96, srr97, srr98, srr99, srr00)
+names(srr.list)=c("srr89", "srr90", "srr91", "srr92", "srr94", "srr95", "srr96", "srr97", "srr98", "srr99", "srr00")
+for (srr in names(srr.list)){
+  #srr.list[[srr]]<-fix.data(srr.list[[srr]])
+  srr.list[[srr]]<-CreateSeuratObject(counts=srr.list[[srr]], min.cells=5, min.features=200)
+  srr.list[[srr]][["percent.mt"]] <- PercentageFeatureSet(srr.list[[srr]], pattern = "^MT-")
+  srr.list[[srr]]<-subset(srr.list[[srr]], subset = nFeature_RNA > 400 & nFeature_RNA < 3000 & percent.mt < 20)
+  srr.list[[srr]]<-knn_smoothing(srr.list[[srr]]@assays$RNA@counts, k)
+  srr.list[[srr]]<-CreateSeuratObject(counts=srr.list[[srr]], min.cells=5, min.features=200)
+}
+##Merge datasets in sample
+sample2042019<-merge(srr.list[["srr89"]], y = srr.list[["srr90"]],project = "2042019")
+
+sample5282019=merge(srr.list[["srr95"]], y = srr.list[["srr96"]],  project = "5282019")
+
+sampleDD044P=merge(srr.list[["srr99"]], y = srr.list[["srr00"]],  project = "DD044P")
+
+sample2252019=merge(srr.list[["srr91"]], y = srr.list[["srr92"]], project = "2252019")
+
+srr.list[["srr94"]]@project.name="4292019"
+srr.list[["srr97"]]@project.name="DD036P" #DD036P
+srr.list[["srr98"]]@project.name="DD040P" #DD040P
+
+sample.list<-list(sample2042019,sample5282019,sampleDD044P,sample2252019,srr.list[["srr94"]], srr.list[["srr97"]], srr.list[["srr98"]])
+names(sample.list)<-c("sample2042019", "sample5282019", "sampleDD044P", "sample2252019", "sample4292019", "sampleDD036P", "sampleDD040P")
+##Normalization and scaling
+for (sample in names(sample.list)){
+  sample.list[[sample]]=NormalizeData(sample.list[[sample]])
+}
+##Find variable features
+for (sample in names(sample.list)) {
+  sample.list[[sample]] <- FindVariableFeatures(sample.list[[sample]], selection.method = "vst",nfeatures = 4000, verbose =FALSE)
+}
+###get gene names
+common.genes=Reduce(intersect, list(rownames(sample2042019),rownames(sample5282019),rownames(sampleDD044P), rownames(sample2252019), rownames(srr.list[["srr94"]]), rownames(srr.list[["srr97"]]), rownames(srr.list[["srr98"]])))
+##Integrate datasets
+anchors <- FindIntegrationAnchors(object.list = sample.list, anchor.features=4000, dims=1:30)
+
+lung.th.raw <- IntegrateData(anchorset = anchors, features.to.integrate=common.genes)
+```
+
+```{r}
+#saveRDS(lung.th.raw, file = "lung.th.raw.knn10.rds")
+#saveRDS(lung.th.raw, file = "lung.th.raw.knn14.rds")
+saveRDS(lung.th.raw, file = "lung.th.raw.knn15.rds")
+```
+
+
+
+```{r}
+th<-readRDS("/home/maria/1tb/CFTR_data/analysis/GSE160673_Ken_7scRNAseq_mt20_merged16labeled_seurat.rds")
+```
+##check cluster
+```{r}
+ciliated.th<-subset(th, subset= (CellGroup=="Ciliated"))
+ciliated.th.cells<-colnames(ciliated.th)
+basal.th<-subset(th, subset= (CellGroup=="Basal"))
+secretory.th<-subset(th, subset= (CellGroup=="Secretory"))
+ionocyte.th<-subset(th, subset = (CellGroup=="Ionocyte/NE" ))
+cycling.th<-subset(th, subset = (CellGroup=="Cycling" ))
+others.th<-subset(th, subset = (CellGroup=="Others" ))
+undefined.th<-subset(th, subset = (CellGroup=="Undefined"))
+```
+```{r}
+CFTR.basal.th = sum(basal.th@assays$RNA["CFTR",]>0)/length(basal.th@assays$RNA["CFTR",]>0)
+CFTR.ciliated.th = sum(ciliated.th@assays$RNA["CFTR",]>0)/length(ciliated.th@assays$RNA["CFTR",]>0)
+CFTR.secretory.th = sum(secretory.th@assays$RNA["CFTR",]>0)/length(secretory.th@assays$RNA["CFTR",]>0)
+CFTR.basal.th 
+CFTR.ciliated.th
+CFTR.secretory.th
+```
+
+
+```{r}
+lung.knn10<-readRDS("lung.th.raw.knn10.rds")
+lung.knn10[["CellName"]] <- colnames(lung.knn10)
+```
+```{r}
+CFTR.basal.knn10 = sum(subset(lung.knn10, subset=CellName %in% basal.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn10, subset=CellName %in% basal.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.ciliated.knn10 = sum(subset(lung.knn10, subset=CellName %in% ciliated.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn10, subset=CellName %in% ciliated.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.secretory.knn10 =  sum(subset(lung.knn10, subset=CellName %in% secretory.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn10, subset=CellName %in% secretory.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.basal.knn10 
+CFTR.ciliated.knn10
+CFTR.secretory.knn10
+```
+
+#fraction for k=14
+```{r}
+lung.knn14<-readRDS("lung.th.raw.knn14.rds")
+lung.knn14[["CellName"]] <- colnames(lung.knn14)
+```
+```{r}
+CFTR.basal.knn14 = sum(subset(lung.knn14, subset=CellName %in% basal.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn14, subset=CellName %in% basal.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.ciliated.knn14 = sum(subset(lung.knn14, subset=CellName %in% ciliated.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn14, subset=CellName %in% ciliated.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.secretory.knn14 =  sum(subset(lung.knn14, subset=CellName %in% secretory.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn14, subset=CellName %in% secretory.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.basal.knn14
+CFTR.ciliated.knn14
+CFTR.secretory.knn14
+```
+#fraction for k=15
+```{r}
+lung.knn15<-readRDS("lung.th.raw.knn15.rds")
+lung.knn15[["CellName"]] <- colnames(lung.knn15)
+```
+```{r}
+CFTR.basal.knn15 = sum(subset(lung.knn15, subset=CellName %in% basal.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn15, subset=CellName %in% basal.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.ciliated.knn15 = sum(subset(lung.knn15, subset=CellName %in% ciliated.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn15, subset=CellName %in% ciliated.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.secretory.knn15 =  sum(subset(lung.knn15, subset=CellName %in% secretory.th.cells)@assays$RNA["CFTR",]>0)/length(subset(lung.knn15, subset=CellName %in% secretory.th.cells)@assays$RNA["CFTR",]>0)
+CFTR.basal.knn15 
+CFTR.ciliated.knn15
+CFTR.secretory.knn15
+```
+#construct stat table
+```{r}
+k=c(1, 1, 1, 10, 10, 10, 14, 14, 14, 15, 15, 15)
+cell.type=c("Basal", "Ciliated", "Secretory", "Basal", "Ciliated", "Secretory", "Basal", "Ciliated", "Secretory","Basal", "Ciliated", "Secretory")
+fraction=c(CFTR.basal.th, CFTR.ciliated.th, CFTR.secretory.th, CFTR.basal.knn10, CFTR.ciliated.knn10, CFTR.secretory.knn10, CFTR.basal.knn14, CFTR.ciliated.knn14, CFTR.secretory.knn14, CFTR.basal.knn15, CFTR.ciliated.knn15, CFTR.secretory.knn15)
+stat<-data.frame(cell.type, fraction, k)
+```
+```{r}
+stat[nrow(stat) + 1,]<-c("Basal", 0.69, "scRNA ISH")
+stat[nrow(stat) + 1,]<-c("Secretory", 0.9, "scRNA ISH")
+stat[nrow(stat) + 1,]<-c("Ciliated", 0.34, "scRNA ISH")
+
+stat$cell.type = factor(stat$cell.type, levels=c("Ciliated","Basal","Secretory"))
+```
+```{r}
+stat$fraction<-unlist(lapply(stat$fraction, function(x) round(as.double(x), 3)))
+#stat$fraction<-stat$fraction*100
+```
+```{r}
+stat$gene<-"CFTR"
+```
+```{r}
+stat
+```
+```{r}
+write.table(stat, "CFTR_fraction.txt")
+```
+```{r}
+stat.plot<-filter(stat, k %in% c("1", "14", "15", "scRNA ISH"))
+```
+```{r}
+plt<-ggplot(data=stat.plot, aes(x=k, y=fraction, fill=k))+geom_bar(stat="identity")+facet_wrap(vars(cell.type), ncol=3)+theme_bw()+ theme(plot.title = element_text(size = 16),text=element_text(size=16), axis.text.x = element_text(size = 14, angle = 45, hjust=1),
+        axis.text.y = element_text(size = 14),legend.position = "none", strip.background=element_rect(colour="black",
+                                    fill="white", linetype = "solid"))+scale_fill_manual(values=c("cadetblue3","#edae49","#edae49","#66a182"))+ scale_x_discrete(labels=c("UMI", "kNN14", "kNN15", "scRNA ISH"))+ labs(y="Fraction", x="")
+print(plt)
+```
+```{r}
+svg(file=paste("barplot_fraction_CFTR",".svg", sep=""), width=9, height=4)#width=7.5, height=5
+print(plt)
+dev.off()
+```
